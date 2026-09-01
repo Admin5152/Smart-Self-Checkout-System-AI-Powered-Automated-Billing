@@ -5,10 +5,11 @@ from .models import Product, CartItem
 class ProductSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(read_only=True)  # Add id field for compatibility
     image_url = serializers.SerializerMethodField()
+    category_name = serializers.CharField(source='category.name', read_only=True, allow_null=True)
 
     class Meta:
         model = Product
-        fields = ['id', 'display_name', 'price', 'yolo_class_name', 'image', 'image_url']
+        fields = ['id', 'display_name', 'price', 'yolo_class_name', 'image', 'image_url', 'category_name']
 
     def get_image_url(self, obj):
         if obj.image:

@@ -583,6 +583,41 @@
 
   .logs-header h1 {
     margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .spending-analytics {
+    display: flex;
+    gap: 12px;
+    margin: 16px 32px 0;
+    flex-wrap: wrap;
+  }
+  .analytics-stat {
+    flex: 1;
+    min-width: 140px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .analytics-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .analytics-val {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+    margin: 0;
     font-family: var(--font-sans);
     font-size: 28px;
     font-weight: 700;
@@ -848,6 +883,65 @@
 
   .products-search {
     min-width: min(360px, 80vw);
+  }
+
+  .products-page-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 16px;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .category-filters {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  
+  .category-filters::-webkit-scrollbar { display: none; }
+
+  .filter-btn {
+    padding: 6px 14px;
+    border-radius: 100px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+  }
+  
+  .filter-btn:hover {
+    background: var(--surface-raised);
+    color: var(--text-primary);
+  }
+
+  .filter-btn.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+
+  .sort-select {
+    padding: 6px 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 13px;
+    cursor: pointer;
+    margin-left: auto;
+    outline: none;
+  }
+
+  .sort-select:focus {
+    border-color: var(--accent);
   }
 
   .products-page-grid {
@@ -1347,6 +1441,18 @@
     min-height: 0;
   }
 
+  .live-camera-feed {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: -1;
+    opacity: 0.85;
+    /* Optional: slightly darken it so white text is more legible */
+    filter: brightness(0.85);
+  }
+
   .monitor-idle,
   .monitor-hit,
   .monitor-confirm {
@@ -1357,6 +1463,14 @@
     text-align: center;
     gap: 12px;
     max-width: 90%;
+    
+    /* Added background and blur so it's readable over video */
+    background: color-mix(in srgb, var(--bg-elevated) 75%, transparent);
+    backdrop-filter: blur(8px);
+    padding: 24px 36px;
+    border-radius: var(--radius);
+    border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+    box-shadow: var(--shadow-md);
   }
 
   .monitor-idle[hidden],
@@ -3051,14 +3165,8 @@
           </div>
 
           <div class="monitor-stage">
+            <img class="live-camera-feed" id="live-camera-feed" src="/camera/stream/" alt="Live camera feed" onerror="this.style.display='none'" onload="this.style.display='block'">
             <div class="monitor-idle" id="monitor-idle">
-              <div class="monitor-radar" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                  <circle cx="12" cy="12" r="3"/>
-                  <path d="M12 3v2M12 19v2M3 12h2M19 12h2"/>
-                  <path d="M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4-1.4M17 7l1.4-1.4"/>
-                </svg>
-              </div>
               <p class="monitor-idle-title" id="monitor-idle-title">Scanning for items…</p>
               <p class="monitor-idle-sub" id="monitor-idle-sub">Hold a product in front of the scanner. Detections appear here in real time.</p>
             </div>
@@ -3211,19 +3319,37 @@
     <div class="logs-main">
       <div class="logs-header">
         <div>
-          <h1>Session Logs</h1>
-          <div class="logs-recording">System Recording Active</div>
+          <h1>Transaction History</h1>
+          <div class="logs-recording" style="color: var(--text-secondary); background: transparent; padding: 0;">Your past purchases and receipts</div>
         </div>
         <div class="logs-tools">
+          <select class="sort-select" id="history-date-filter" style="margin-right: 12px; height: 36px;">
+            <option value="all">All Time</option>
+            <option value="7">Last 7 Days</option>
+            <option value="30">Last 30 Days</option>
+          </select>
           <label class="logs-search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-            <input type="search" id="history-search" placeholder="Search TXN ID or Date..." autocomplete="off">
+            <input type="search" id="history-search" placeholder="Search TXN ID..." autocomplete="off">
           </label>
-          <button type="button" class="icon-btn" title="Filter" aria-label="Filter">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
-          </button>
         </div>
       </div>
+      
+      <div class="spending-analytics" id="spending-analytics">
+        <div class="analytics-stat">
+          <span class="analytics-label">Total Spent</span>
+          <span class="analytics-val" id="analytics-total">₵0.00</span>
+        </div>
+        <div class="analytics-stat">
+          <span class="analytics-label">Transactions</span>
+          <span class="analytics-val" id="analytics-count">0</span>
+        </div>
+        <div class="analytics-stat">
+          <span class="analytics-label">Avg. Order Value</span>
+          <span class="analytics-val" id="analytics-avg">₵0.00</span>
+        </div>
+      </div>
+
       <div class="logs-list" id="session-logs-list">
         <div class="empty-state">No purchase history yet.</div>
       </div>
@@ -3237,6 +3363,21 @@
           <h1>Products</h1>
           <p class="products-page-sub">All items from the store inventory — tap Add to put them in your cart.</p>
         </div>
+        
+        <div class="products-page-controls">
+          <div class="category-filters" id="category-filters">
+            <button type="button" class="filter-btn active" data-category="all">All</button>
+            <button type="button" class="filter-btn" data-category="beverage">Beverages</button>
+            <button type="button" class="filter-btn" data-category="snack">Snacks</button>
+            <button type="button" class="filter-btn" data-category="electronics">Electronics</button>
+          </div>
+          <select class="sort-select" id="sort-select">
+            <option value="name-asc">Name (A-Z)</option>
+            <option value="price-asc">Price (Low to High)</option>
+            <option value="price-desc">Price (High to Low)</option>
+          </select>
+        </div>
+
         <label class="logs-search products-search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
           <input type="search" id="products-search" placeholder="Search products…" autocomplete="off">
@@ -3496,6 +3637,36 @@
       </div>
     </div>
   </div>
+  <div class="modal-overlay" id="product-details-modal" role="dialog" aria-modal="true" aria-labelledby="product-details-title">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="product-details-title">Product Details</h2>
+        <button type="button" class="icon-btn" id="product-details-close" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body" style="text-align: center;">
+        <img id="pd-image" src="" alt="Product Image" style="max-width: 100%; max-height: 200px; border-radius: var(--radius); object-fit: cover; margin-bottom: 16px;">
+        <h3 id="pd-name" style="margin: 0; font-size: 22px;"></h3>
+        <p id="pd-category" style="color: var(--text-secondary); font-size: 14px; margin-top: 4px; text-transform: capitalize;"></p>
+        <p id="pd-price" style="font-size: 20px; font-weight: 600; color: var(--accent); margin-top: 8px;"></p>
+        
+        <div style="margin-top: 24px; text-align: left;">
+          <h4 style="margin: 0 0 8px; font-size: 14px;">Nutrition Facts</h4>
+          <div style="background: var(--surface-raised); padding: 12px; border-radius: 8px; font-size: 13px; line-height: 1.5; color: var(--text-secondary);">
+            <div style="display:flex; justify-content: space-between;"><span>Calories</span><strong>120kcal</strong></div>
+            <div style="display:flex; justify-content: space-between;"><span>Sugar</span><strong>12g</strong></div>
+            <div style="display:flex; justify-content: space-between;"><span>Fat</span><strong>0g</strong></div>
+            <div style="display:flex; justify-content: space-between;"><span>Sodium</span><strong>15mg</strong></div>
+          </div>
+        </div>
+
+        <div class="pay-options" style="margin-top: 24px;">
+          <button type="button" class="pay-option-btn primary" id="pd-add-to-cart">Add to Cart</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
 <script>
   /* —— Session state —— */
@@ -3744,15 +3915,37 @@
     return (order.items_snapshot || []).reduce((sum, i) => sum + (parseInt(i.qty, 10) || 0), 0);
   }
 
+  document.getElementById('history-date-filter')?.addEventListener('change', () => {
+    renderSessionLogs(sessionOrders, document.getElementById('history-search')?.value || '');
+  });
+
   function renderSessionLogs(orders, filterText = '') {
     const list = document.getElementById('session-logs-list');
     const q = (filterText || '').toLowerCase().trim();
+    const dateRange = document.getElementById('history-date-filter')?.value || 'all';
+
     const filtered = (orders || []).filter(o => {
+      if (dateRange !== 'all') {
+        const orderDate = new Date(o.date);
+        const daysAgo = (new Date() - orderDate) / (1000 * 60 * 60 * 24);
+        if (daysAgo > parseInt(dateRange)) return false;
+      }
       if (!q) return true;
       const id = txnIdFromOrder(o).toLowerCase();
       const date = formatOrderDate(o.date).toLowerCase();
       return id.includes(q) || date.includes(q) || String(o.id).includes(q);
     });
+
+    let totalSpent = 0;
+    filtered.forEach(o => totalSpent += Number(o.amount) || 0);
+    const avgSpent = filtered.length ? totalSpent / filtered.length : 0;
+    
+    const elTotal = document.getElementById('analytics-total');
+    const elCount = document.getElementById('analytics-count');
+    const elAvg = document.getElementById('analytics-avg');
+    if (elTotal) elTotal.textContent = formatMoney(totalSpent);
+    if (elCount) elCount.textContent = filtered.length;
+    if (elAvg) elAvg.textContent = formatMoney(avgSpent);
 
     if (!filtered.length) {
       list.innerHTML = '<div class="empty-state">No purchase history yet.</div>';
@@ -3790,7 +3983,9 @@
           </div>
           <div class="txn-detail">${items} · ${o.payment_method}</div>
           <div class="txn-actions">
-            <button type="button" class="txn-receipt-btn" data-receipt-id="${o.id}">View Receipt</button>
+            <button type="button" class="txn-receipt-btn" data-receipt-id="${o.id}">View</button>
+            <button type="button" class="txn-receipt-btn" data-pdf-id="${o.id}">Download PDF</button>
+            <button type="button" class="txn-receipt-btn" data-reorder-id="${o.id}" style="background: var(--accent); color: white; border-color: var(--accent);">Buy Again</button>
           </div>
         </article>
       `;
@@ -3798,7 +3993,7 @@
 
     list.querySelectorAll('.txn-card').forEach(card => {
       card.addEventListener('click', (e) => {
-        if (e.target.closest('[data-receipt-id]')) return;
+        if (e.target.closest('button')) return;
         card.classList.toggle('open');
       });
     });
@@ -3807,6 +4002,20 @@
         e.stopPropagation();
         const order = sessionOrders.find(o => String(o.id) === String(btn.dataset.receiptId));
         if (order) openHistoryReceipt(order);
+      });
+    });
+    list.querySelectorAll('[data-pdf-id]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const order = sessionOrders.find(o => String(o.id) === String(btn.dataset.pdfId));
+        if (order) downloadReceiptPdf(order);
+      });
+    });
+    list.querySelectorAll('[data-reorder-id]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const order = sessionOrders.find(o => String(o.id) === String(btn.dataset.reorderId));
+        if (order) await reorderItems(order);
       });
     });
   }
@@ -3837,6 +4046,41 @@
 
   function hideHistoryReceipt() {
     document.getElementById('history-receipt-modal')?.classList.remove('open');
+  }
+
+  function downloadReceiptPdf(order) {
+    const content = `
+      Vigilant Store - Receipt
+      Transaction: ${txnIdFromOrder(order)}
+      Date: ${formatOrderDate(order.date)}
+      Total: ${formatMoney(order.amount)}
+      Payment: ${order.payment_method}
+      
+      Items:
+      ${(order.items_snapshot || []).map(i => `${i.name} x${i.qty} - ${formatMoney(parseFloat(i.price) * parseInt(i.qty, 10))}`).join('\n      ')}
+    `.trim();
+    
+    // We mock PDF with a TXT file download for demonstration purposes
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Receipt_${txnIdFromOrder(order)}.txt`; 
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async function reorderItems(order) {
+    if (!order.items_snapshot || order.items_snapshot.length === 0) return;
+    for (const item of order.items_snapshot) {
+      const product = catalogProducts.find(p => p.display_name === item.name);
+      if (product) {
+        await addProductToCart(product.id, item.qty);
+      }
+    }
+    document.querySelector('.logs-nav-btn[data-nav="dashboard"]')?.click();
   }
 
   async function fetchCustomerOrders() {
@@ -4349,7 +4593,16 @@
   let lastSeenActivityAt = null;
 
   function setDetectorOnline(online, secondsSince = null) {
+    const wasOnline = terminalOnline;
     terminalOnline = !!online;
+    
+    if (online && !wasOnline) {
+      const camFeed = document.getElementById('live-camera-feed');
+      if (camFeed) {
+        // Force browser to reload the MJPEG stream when YOLO comes online
+        camFeed.src = '/camera/stream/?t=' + Date.now();
+      }
+    }
     if (cameraStatusEl) {
       cameraStatusEl.textContent = online ? 'Online · detecting' : 'Offline';
     }
@@ -4771,16 +5024,93 @@
         });
       });
     });
+
+    // Wire up product detail modal opens
+    grid.querySelectorAll('.product-thumb, .product-name').forEach(el => {
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', (e) => {
+        const card = e.target.closest('.product-card');
+        if (card) showProductDetails(card.dataset.productId);
+      });
+    });
   }
+
+  function showProductDetails(productId) {
+    const p = catalogProducts.find(x => x.id == productId);
+    if (!p) return;
+    
+    document.getElementById('pd-name').textContent = p.display_name;
+    document.getElementById('pd-category').textContent = p.category_name || 'Uncategorized';
+    document.getElementById('pd-price').textContent = formatMoney(p.price);
+    
+    const imgEl = document.getElementById('pd-image');
+    if (p.image_url) {
+      imgEl.src = p.image_url;
+      imgEl.style.display = 'block';
+    } else {
+      imgEl.style.display = 'none';
+    }
+    
+    const addToCartBtn = document.getElementById('pd-add-to-cart');
+    addToCartBtn.onclick = async () => {
+      addToCartBtn.disabled = true;
+      await addProductToCart(p.id, 1);
+      document.getElementById('product-details-modal').classList.remove('active');
+      addToCartBtn.disabled = false;
+    };
+    
+    document.getElementById('product-details-modal').classList.add('active');
+  }
+
+  document.getElementById('product-details-close')?.addEventListener('click', () => {
+    document.getElementById('product-details-modal').classList.remove('active');
+  });
+
+  let activeCategory = 'all';
+  let activeSort = 'name-asc';
+
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      e.target.classList.add('active');
+      activeCategory = e.target.dataset.category;
+      renderProductsPage(document.getElementById('products-search')?.value || '');
+    });
+  });
+
+  document.getElementById('sort-select')?.addEventListener('change', (e) => {
+    activeSort = e.target.value;
+    renderProductsPage(document.getElementById('products-search')?.value || '');
+  });
 
   function renderProductsPage(filterText = '') {
     const grid = document.getElementById('products-page-grid');
     if (!grid) return;
     const q = (filterText || '').toLowerCase().trim();
-    const products = (catalogProducts || []).filter(p => {
-      if (!q) return true;
-      return String(p.display_name || '').toLowerCase().includes(q);
+    
+    let products = (catalogProducts || []).filter(p => {
+      // Name filter
+      if (q && !String(p.display_name || '').toLowerCase().includes(q)) return false;
+      // Category filter
+      if (activeCategory !== 'all') {
+        const catName = p.category_name ? String(p.category_name).toLowerCase() : '';
+        if (!catName.includes(activeCategory)) return false;
+      }
+      return true;
     });
+
+    // Sorting
+    products.sort((a, b) => {
+      if (activeSort === 'name-asc') {
+        return (a.display_name || '').localeCompare(b.display_name || '');
+      } else if (activeSort === 'price-asc') {
+        return Number(a.price) - Number(b.price);
+      } else if (activeSort === 'price-desc') {
+        return Number(b.price) - Number(a.price);
+      }
+      return 0;
+    });
+
     if (!catalogProducts.length) {
       grid.innerHTML = '<div class="catalog-empty">No products yet — add some in Django admin.</div>';
       return;
