@@ -195,3 +195,83 @@ class EmergencyReport(models.Model):
 
     def __str__(self):
         return f"[{self.get_category_display()}] {self.transaction_id or 'no txn'} - {self.status}"
+
+
+class Employee(models.Model):
+    full_name = models.CharField(max_length=150)
+    employee_id_number = models.CharField(max_length=50, unique=True)
+    email = models.EmailField(unique=True)
+    hourly_pay = models.DecimalField(max_digits=8, decimal_places=2, default=0.00)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.full_name} ({self.employee_id_number})"
+
+
+class EmployeeSchedule(models.Model):
+    DAYS_OF_WEEK = [
+        (0, 'Sunday'),
+        (1, 'Monday'),
+        (2, 'Tuesday'),
+        (3, 'Wednesday'),
+        (4, 'Thursday'),
+        (5, 'Friday'),
+        (6, 'Saturday'),
+    ]
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='schedules')
+    day_of_week = models.IntegerField(choices=DAYS_OF_WEEK)
+    is_working = models.BooleanField(default=False)
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('employee', 'day_of_week')
+
+    def __str__(self):
+        status = f"{self.start_time} - {self.end_time}" if self.is_working else "Off"
+        return f"{self.employee.full_name} - {self.get_day_of_week_display()} ({status})"
+
+
+class AssistanceRequest(models.Model):
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('ACCEPTED', 'Accepted'),
+        ('IN_PROGRESS', 'In Progress'),
+        ('COMPLETED', 'Completed'),
+        ('CANCELLED', 'Cancelled'),
+    ]
+    request_id = models.CharField(max_length=50, unique=True)
+    customer_session_ref = models.CharField(max_length=150, blank=True, null=True)
+    location = models.CharField(max_length=100)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    assigned_employee = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='assistance_requests')
+    requested_at = models.DateTimeField(auto_now_add=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Request {self.request_id} - {self.status}"
+
+
+class EmployeeActivity(models.Model):
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='activities')
+    action = models.CharField(max_length=100)
+    description = models.TextField(blank=True, null=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.employee.full_name} - {self.action} at {self.timestamp}"
+
+
+class Notification(models.Model):
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='notifications')
+    assistance_request = models.ForeignKey(AssistanceRequest, on_delete=models.CASCADE, related_name='notifications')
+    message = models.CharField(max_length=255)
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Notification for {self.employee.full_name} - Read: {self.is_read}"

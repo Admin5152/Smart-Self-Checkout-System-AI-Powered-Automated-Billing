@@ -5,6 +5,7 @@ import hashlib
 import json
 import requests
 import logging
+import base64
 from datetime import datetime, timedelta
 from collections import defaultdict
 
@@ -25,9 +26,11 @@ from django.db.models import Sum, Count
 from .models import (
     Product, CartItem, Cart, Transaction, TransactionItem, 
     Customer, EmergencyReport, DetectionLog, PaymentMethod, 
-    Payment, Receipt, Admin, Category
+    Payment, Receipt, Admin, Category, Employee, EmployeeSchedule,
+    AssistanceRequest, EmployeeActivity, Notification
 )
 from .serializers import CartItemSerializer, ProductSerializer
+from .services.gemini_service import get_chatbot_response
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +55,9 @@ DETECTION_DISPLAY_WINDOW_SEC = 3
 
 # Admin session key
 ADMIN_SESSION_KEY = 'admin_id'
+
+# Employee session key
+EMPLOYEE_SESSION_KEY = 'employee_id'
 
 
 def _is_fake_guest_email(email):
@@ -952,3 +958,514 @@ def admin_reports(request):
         'reports': reports,
     }
     return render(request, 'checkout/admin_reports.html', context)
+
+
+@admin_required
+def admin_employees(request):
+    """Employee management page"""
+    employees = Employee.objects.all().order_by('-created_at')
+    
+    context = {
+        'employees': employees,
+    }
+    return render(request, 'checkout/admin_employees.html', context)
+
+
+@admin_required
+def admin_employee_create(request):
+    """Create a new employee"""
+    if request.method == 'POST':
+        full_name = request.POST.get('full_name')
+        employee_id_number = request.POST.get('employee_id_number')
+        email = request.POST.get('email')
+        hourly_pay = request.POST.get('hourly_pay')
+
+        if Employee.objects.filter(employee_id_number=employee_id_number).exists():
+            return render(request, 'checkout/admin_employee_form.html', {
+                'error': 'Employee ID number already exists.'
+            })
+            
+        if Employee.objects.filter(email=email).exists():
+            return render(request, 'checkout/admin_employee_form.html', {
+                'error': 'Email address already exists.'
+            })
+
+        employee = Employee.objects.create(
+            full_name=full_name,
+            employee_id_number=employee_id_number,
+            email=email,
+            hourly_pay=hourly_pay
+        )
+
+        # Create schedules
+        for day_num, day_name in EmployeeSchedule.DAYS_OF_WEEK:
+            is_working = request.POST.get(f'is_working_{day_num}') == 'on'
+            start_time = request.POST.get(f'start_time_{day_num}') if is_working else None
+            end_time = request.POST.get(f'end_time_{day_num}') if is_working else None
+            
+            # handle empty string from time inputs
+            start_time = start_time if start_time else None
+            end_time = end_time if end_time else None
+
+            EmployeeSchedule.objects.create(
+                employee=employee,
+                day_of_week=day_num,
+                is_working=is_working,
+                start_time=start_time,
+                end_time=end_time
+            )
+
+        return redirect('admin_employees')
+
+    return render(request, 'checkout/admin_employee_form.html')
+
+
+@admin_required
+def admin_employee_detail(request, employee_id):
+    """View employee details"""
+    try:
+        employee = Employee.objects.get(id=employee_id)
+    except Employee.DoesNotExist:
+        return redirect('admin_employees')
+
+    schedules = employee.schedules.all().order_by('day_of_week')
+    activities = employee.activities.all().order_by('-timestamp')[:50]
+    
+    # Calculate stats
+    products_added = activities.filter(action='Added Product').count()
+    products_deleted = activities.filter(action='Deleted Product').count()
+    requests_accepted = employee.assistance_requests.count()
+    requests_completed = employee.assistance_requests.filter(status='COMPLETED').count()
+    
+    # Determine current status
+    now = datetime.now()
+    today_num = (now.weekday() + 1) % 7 # Django day_of_week is 0=Sunday
+    try:
+        today_schedule = schedules.get(day_of_week=today_num)
+        if today_schedule.is_working and today_schedule.start_time and today_schedule.end_time:
+            now_time = now.time()
+            if today_schedule.start_time <= now_time <= today_schedule.end_time:
+                current_status = 'Scheduled'
+            else:
+                current_status = 'Not Scheduled'
+        else:
+            current_status = 'Not Scheduled'
+    except EmployeeSchedule.DoesNotExist:
+        current_status = 'Unknown'
+        
+    context = {
+        'employee': employee,
+        'schedules': schedules,
+        'activities': activities,
+        'products_added': products_added,
+        'products_deleted': products_deleted,
+        'requests_accepted': requests_accepted,
+        'requests_completed': requests_completed,
+        'current_status': current_status,
+    }
+    return render(request, 'checkout/admin_employee_detail.html', context)
+
+
+@admin_required
+def admin_employee_toggle_status(request, employee_id):
+    """Activate/Deactivate an employee"""
+    try:
+        employee = Employee.objects.get(id=employee_id)
+        employee.is_active = not employee.is_active
+        employee.save()
+    except Employee.DoesNotExist:
+        pass
+    
+    return redirect('admin_employees')
+
+@admin_required
+def admin_assistance(request):
+    """Admin monitoring for assistance requests and activities"""
+    
+    # Get recent assistance requests
+    recent_requests = AssistanceRequest.objects.all().order_by('-requested_at')[:50]
+    
+    # Get recent employee activities
+    recent_activities = EmployeeActivity.objects.select_related('employee').all().order_by('-timestamp')[:50]
+    
+    context = {
+        'requests': recent_requests,
+        'activities': recent_activities,
+    }
+    return render(request, 'checkout/admin_assistance.html', context)
+
+
+# ==================================================
+# -------- Employee Auth & Dashboard Views ---------
+# ==================================================
+
+def employee_login(request):
+    """Employee login page"""
+    if request.method == 'POST':
+        full_name = request.POST.get('full_name', '').strip()
+        employee_id_number = request.POST.get('employee_id_number', '').strip()
+        
+        try:
+            employee = Employee.objects.get(
+                full_name__iexact=full_name,
+                employee_id_number=employee_id_number
+            )
+            if not employee.is_active:
+                return render(request, 'checkout/employee_login.html', {
+                    'error': 'This account has been deactivated.'
+                })
+            
+            # Log the activity
+            EmployeeActivity.objects.create(
+                employee=employee,
+                action='Login',
+                description='Employee logged in to the dashboard.'
+            )
+            
+            request.session[EMPLOYEE_SESSION_KEY] = employee.id
+            return redirect('employee_dashboard')
+            
+        except Employee.DoesNotExist:
+            return render(request, 'checkout/employee_login.html', {
+                'error': 'Invalid credentials. Please check your name and ID.'
+            })
+    
+    return render(request, 'checkout/employee_login.html')
+
+
+def employee_logout(request):
+    """Logout and redirect to checkout page"""
+    if EMPLOYEE_SESSION_KEY in request.session:
+        employee_id = request.session[EMPLOYEE_SESSION_KEY]
+        try:
+            employee = Employee.objects.get(id=employee_id)
+            EmployeeActivity.objects.create(
+                employee=employee,
+                action='Logged Out',
+                description='Employee logged out of the dashboard.'
+            )
+        except Employee.DoesNotExist:
+            pass
+        
+        del request.session[EMPLOYEE_SESSION_KEY]
+    return redirect('checkout_page')
+
+
+def employee_required(view_func):
+    """Decorator to require employee authentication"""
+    def wrapper(request, *args, **kwargs):
+        if EMPLOYEE_SESSION_KEY not in request.session:
+            return redirect('employee_login')
+        
+        # Check if employee is still active
+        employee_id = request.session[EMPLOYEE_SESSION_KEY]
+        try:
+            employee = Employee.objects.get(id=employee_id)
+            if not employee.is_active:
+                del request.session[EMPLOYEE_SESSION_KEY]
+                return redirect('employee_login')
+        except Employee.DoesNotExist:
+            del request.session[EMPLOYEE_SESSION_KEY]
+            return redirect('employee_login')
+            
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
+@employee_required
+def employee_dashboard(request):
+    """Main employee dashboard"""
+    employee_id = request.session[EMPLOYEE_SESSION_KEY]
+    employee = Employee.objects.get(id=employee_id)
+    
+    # Get today's schedule
+    now = datetime.now()
+    today_num = (now.weekday() + 1) % 7
+    schedules = employee.schedules.all().order_by('day_of_week')
+    
+    try:
+        today_schedule = schedules.get(day_of_week=today_num)
+        if today_schedule.is_working and today_schedule.start_time and today_schedule.end_time:
+            now_time = now.time()
+            if today_schedule.start_time <= now_time <= today_schedule.end_time:
+                current_status = 'On Duty'
+            else:
+                current_status = 'Scheduled Today'
+        else:
+            current_status = 'Off Duty'
+    except EmployeeSchedule.DoesNotExist:
+        today_schedule = None
+        current_status = 'Off Duty'
+
+    # Get stats
+    activities = employee.activities.filter(timestamp__date=now.date())
+    products_added_today = activities.filter(action='Added Product').count()
+    
+    total_requests = employee.assistance_requests.count()
+    pending_requests_overall = AssistanceRequest.objects.filter(status='PENDING').count()
+    
+    recent_activity = employee.activities.order_by('-timestamp')[:10]
+    
+    context = {
+        'employee': employee,
+        'schedules': schedules,
+        'today_schedule': today_schedule,
+        'current_status': current_status,
+        'products_added_today': products_added_today,
+        'total_requests': total_requests,
+        'pending_requests_overall': pending_requests_overall,
+        'recent_activity': recent_activity,
+        'today_num': today_num
+    }
+    
+    return render(request, 'checkout/employee_dashboard.html', context)
+
+
+@employee_required
+def employee_products(request):
+    """Employee product management page"""
+    employee_id = request.session[EMPLOYEE_SESSION_KEY]
+    employee = Employee.objects.get(id=employee_id)
+    
+    products = Product.objects.select_related('category').all()
+    categories = Category.objects.all()
+    
+    context = {
+        'employee': employee,
+        'products': products,
+        'categories': categories,
+    }
+    return render(request, 'checkout/employee_products.html', context)
+
+
+@employee_required
+def employee_product_add(request):
+    """Employee add product view"""
+    employee_id = request.session[EMPLOYEE_SESSION_KEY]
+    employee = Employee.objects.get(id=employee_id)
+    
+    if request.method == 'POST':
+        display_name = request.POST.get('display_name')
+        yolo_class_name = request.POST.get('yolo_class_name', display_name.lower())
+        price = request.POST.get('price')
+        category_id = request.POST.get('category_id')
+        stock_quantity = request.POST.get('stock_quantity', 0)
+        
+        if Product.objects.filter(yolo_class_name=yolo_class_name).exists():
+            return render(request, 'checkout/employee_product_form.html', {
+                'employee': employee,
+                'categories': Category.objects.all(),
+                'error': 'A product with this YOLO Class Name already exists.'
+            })
+            
+        category = Category.objects.get(category_id=category_id) if category_id else None
+            
+        product = Product.objects.create(
+            display_name=display_name,
+            yolo_class_name=yolo_class_name,
+            price=price,
+            category=category,
+            stock_quantity=stock_quantity
+        )
+        
+        # Log activity
+        EmployeeActivity.objects.create(
+            employee=employee,
+            action='Added Product',
+            description=f"Added product '{product.display_name}' (ID: {product.id})"
+        )
+        
+        return redirect('employee_products')
+        
+    context = {
+        'employee': employee,
+        'categories': Category.objects.all(),
+    }
+    return render(request, 'checkout/employee_product_form.html', context)
+
+
+@employee_required
+def employee_requests(request):
+    """Employee assistance requests page"""
+    employee_id = request.session[EMPLOYEE_SESSION_KEY]
+    employee = Employee.objects.get(id=employee_id)
+    
+    # Get all pending requests or requests accepted by this employee
+    pending_requests = AssistanceRequest.objects.filter(status='PENDING').order_by('-requested_at')
+    my_active_requests = AssistanceRequest.objects.filter(status='ACCEPTED', assigned_employee=employee).order_by('-requested_at')
+    
+    context = {
+        'employee': employee,
+        'pending_requests': pending_requests,
+        'my_active_requests': my_active_requests,
+    }
+    return render(request, 'checkout/employee_requests.html', context)
+
+
+@employee_required
+@csrf_exempt
+def employee_accept_request(request, request_id):
+    """Employee accepts a pending assistance request"""
+    if request.method == 'POST':
+        employee_id = request.session[EMPLOYEE_SESSION_KEY]
+        employee = Employee.objects.get(id=employee_id)
+        
+        try:
+            assistance = AssistanceRequest.objects.get(id=request_id)
+            if assistance.status == 'PENDING':
+                import django.utils.timezone
+                assistance.status = 'ACCEPTED'
+                assistance.assigned_employee = employee
+                assistance.accepted_at = django.utils.timezone.now()
+                assistance.save()
+                
+                # Log activity
+                EmployeeActivity.objects.create(
+                    employee=employee,
+                    action='Accepted Request',
+                    description=f"Accepted assistance request #{assistance.id} for {assistance.customer_session_ref}"
+                )
+                
+            return redirect('employee_requests')
+        except AssistanceRequest.DoesNotExist:
+            pass
+            
+    return redirect('employee_requests')
+
+
+@employee_required
+@csrf_exempt
+def employee_resolve_request(request, request_id):
+    """Employee resolves an active assistance request"""
+    if request.method == 'POST':
+        employee_id = request.session[EMPLOYEE_SESSION_KEY]
+        employee = Employee.objects.get(id=employee_id)
+        
+        try:
+            assistance = AssistanceRequest.objects.get(id=request_id, assigned_employee=employee)
+            if assistance.status == 'ACCEPTED':
+                import django.utils.timezone
+                assistance.status = 'RESOLVED'
+                assistance.completed_at = django.utils.timezone.now()
+                assistance.save()
+                
+                # Log activity
+                EmployeeActivity.objects.create(
+                    employee=employee,
+                    action='Resolved Request',
+                    description=f"Resolved assistance request #{assistance.id} for {assistance.customer_session_ref}"
+                )
+                
+            return redirect('employee_requests')
+        except AssistanceRequest.DoesNotExist:
+            pass
+            
+    return redirect('employee_requests')
+
+@employee_required
+def employee_product_delete(request, product_id):
+    """Employee delete product view"""
+    if request.method == 'POST':
+        employee_id = request.session[EMPLOYEE_SESSION_KEY]
+        employee = Employee.objects.get(id=employee_id)
+        
+        try:
+            product = Product.objects.get(id=product_id)
+            product_name = product.display_name
+            product.delete()
+            
+            # Log activity
+            EmployeeActivity.objects.create(
+                employee=employee,
+                action='Deleted Product',
+                description=f"Deleted product '{product_name}' (ID: {product_id})"
+            )
+        except Product.DoesNotExist:
+            pass
+            
+    return redirect('employee_products')
+
+# ==================================================
+# -------- Customer Assistance APIs ----------------
+# ==================================================
+
+import json
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+
+@csrf_exempt
+def request_assistance(request):
+    """Customer requests assistance"""
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            transaction_id = data.get('transaction_id', '')
+            customer_name = data.get('customer_name', 'Customer')
+            
+            import uuid
+            req_id = str(uuid.uuid4())[:8]
+            assistance = AssistanceRequest.objects.create(
+                request_id=f"REQ-{req_id}",
+                customer_session_ref=customer_name,
+                location=f"Tx: {transaction_id}",
+                status='PENDING'
+            )
+            
+            return JsonResponse({'success': True, 'request_id': assistance.id})
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+    return JsonResponse({'success': False, 'error': 'Invalid method'}, status=405)
+
+
+def assistance_status(request, request_id):
+    """Check the status of an assistance request"""
+    try:
+        assistance = AssistanceRequest.objects.get(id=request_id)
+        return JsonResponse({
+            'status': assistance.status,
+            'employee_name': assistance.assigned_employee.full_name if assistance.assigned_employee else None
+        })
+    except AssistanceRequest.DoesNotExist:
+        return JsonResponse({'error': 'Not found'}, status=404)
+
+
+@csrf_exempt
+def cancel_assistance(request, request_id):
+    """Customer cancels their assistance request"""
+    if request.method == 'POST':
+        try:
+            assistance = AssistanceRequest.objects.get(id=request_id)
+            if assistance.status == 'PENDING':
+                assistance.status = 'RESOLVED'
+                assistance.save()
+            return JsonResponse({'success': True})
+        except AssistanceRequest.DoesNotExist:
+            return JsonResponse({'error': 'Not found'}, status=404)
+    return JsonResponse({'success': False, 'error': 'Invalid method'}, status=405)
+
+
+@csrf_exempt
+def api_chatbot(request):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Invalid method'}, status=405)
+    try:
+        data = json.loads(request.body)
+        message = data.get('message')
+        history = data.get('history', [])
+        
+        if not message:
+            return JsonResponse({'error': 'Message is required'}, status=400)
+            
+        session_id = request.session.session_key
+        if not session_id:
+            request.session.create()
+            session_id = request.session.session_key
+            
+        response_text = get_chatbot_response(message, session_id, history)
+        
+        return JsonResponse({
+            'success': True,
+            'message': response_text
+        })
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)

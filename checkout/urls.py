@@ -16,8 +16,23 @@ urlpatterns = [
     path('checkout/paystack/verify/', views.checkout_paystack_verify, name='checkout_paystack_verify'),
     path('checkout/paystack/webhook/', views.paystack_webhook, name='paystack_webhook'),
     path('detection/pause/', views.pause_detection, name='pause_detection'),
+    path('api/request-assistance/', views.request_assistance, name='request_assistance'),
+    path('api/assistance-status/<int:request_id>/', views.assistance_status, name='assistance_status'),
+    path('api/cancel-assistance/<int:request_id>/', views.cancel_assistance, name='cancel_assistance'),
+    path('api/chatbot/', views.api_chatbot, name='api_chatbot'),
     path('detection/resume/', views.resume_detection, name='resume_detection'),
     path('emergency/report/', views.report_emergency, name='report_emergency'),
+    
+    # Employee URLs
+    path('employee/login/', views.employee_login, name='employee_login'),
+    path('employee/logout/', views.employee_logout, name='employee_logout'),
+    path('employee/dashboard/', views.employee_dashboard, name='employee_dashboard'),
+    path('employee/products/', views.employee_products, name='employee_products'),
+    path('employee/products/add/', views.employee_product_add, name='employee_product_add'),
+    path('employee/products/<int:product_id>/delete/', views.employee_product_delete, name='employee_product_delete'),
+    path('employee/requests/', views.employee_requests, name='employee_requests'),
+    path('employee/requests/<int:request_id>/accept/', views.employee_accept_request, name='employee_accept_request'),
+    path('employee/requests/<int:request_id>/resolve/', views.employee_resolve_request, name='employee_resolve_request'),
     
     # Admin URLs
     path('admin/login/', views.admin_login, name='admin_login'),
@@ -28,4 +43,9 @@ urlpatterns = [
     path('admin/transactions/', views.admin_transactions, name='admin_transactions'),
     path('admin/detection-logs/', views.admin_detection_logs, name='admin_detection_logs'),
     path('admin/reports/', views.admin_reports, name='admin_reports'),
+    path('admin/employees/', views.admin_employees, name='admin_employees'),
+    path('admin/employees/create/', views.admin_employee_create, name='admin_employee_create'),
+    path('admin/employees/<int:employee_id>/', views.admin_employee_detail, name='admin_employee_detail'),
+    path('admin/employees/<int:employee_id>/toggle/', views.admin_employee_toggle_status, name='admin_employee_toggle_status'),
+    path('admin/assistance/', views.admin_assistance, name='admin_assistance'),
 ]

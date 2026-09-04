@@ -2,7 +2,8 @@ from django.contrib import admin
 from .models import (
     Product, CartItem, Cart, Transaction, TransactionItem, 
     Customer, EmergencyReport, DetectionLog, PaymentMethod, 
-    Payment, Receipt, Admin, Category
+    Payment, Receipt, Admin, Category,
+    Employee, EmployeeSchedule, AssistanceRequest, EmployeeActivity
 )
 
 
@@ -137,3 +138,31 @@ class EmergencyReportAdmin(admin.ModelAdmin):
     list_editable = ['status']
     readonly_fields = ['created_at']
     ordering = ['-created_at']
+
+
+@admin.register(Employee)
+class EmployeeAdmin(admin.ModelAdmin):
+    list_display = ['full_name', 'email', 'employee_id_number', 'is_active', 'created_at']
+    list_filter = ['is_active', 'created_at']
+    search_fields = ['full_name', 'email', 'employee_id_number']
+
+
+@admin.register(EmployeeSchedule)
+class EmployeeScheduleAdmin(admin.ModelAdmin):
+    list_display = ['employee', 'day_of_week', 'start_time', 'end_time', 'is_working']
+    list_filter = ['day_of_week', 'is_working', 'employee']
+
+
+@admin.register(AssistanceRequest)
+class AssistanceRequestAdmin(admin.ModelAdmin):
+    list_display = ['request_id', 'customer_session_ref', 'location', 'status', 'assigned_employee', 'requested_at']
+    list_filter = ['status', 'requested_at', 'assigned_employee']
+    search_fields = ['request_id', 'customer_session_ref', 'location']
+    readonly_fields = ['requested_at']
+
+
+@admin.register(EmployeeActivity)
+class EmployeeActivityAdmin(admin.ModelAdmin):
+    list_display = ['employee', 'action', 'timestamp']
+    list_filter = ['action', 'timestamp', 'employee']
+
